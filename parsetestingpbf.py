@@ -106,8 +106,8 @@ def shortest_path(distance_graph: dict, start_vertex: int, end_vertex: int):
 
 
 if __name__ == '__main__':
-    start_node = 1843227098
-    target_node = 3048099426
+    start_node = 442535874
+    target_node = 995356803
     type_of_way = 'car'  # 'walking' / 'car'
 
     h = CounterHandler(type_of_way)
@@ -117,7 +117,7 @@ if __name__ == '__main__':
 
     h.build_graph()
 
-    distance, short_path, *_ = shortest_path(h.distances, 442535874, 995356803)
+    distance, short_path, *_ = shortest_path(h.distances, start_node, target_node)
     print(f"Общее расстояние: {distance}\nКратчайший путь: {short_path}")
 
     wayrepr = [h.nodes[str(node)] for node in short_path]
