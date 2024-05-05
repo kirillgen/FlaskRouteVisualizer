@@ -1,96 +1,147 @@
-import tkinter
-import tkintermapview
-# import ast # модуль для конвертации строки в tuple
-
-# Дейкстра и попытки его применить на картку
-# dist_graph = {}
-def build_distance_graph(file_path: str) -> dict:
-    distance_graph = {}
-    with open(file_path, encoding='utf-8') as file:
-        while True:
-            cur_line = file.readline()
-            if cur_line:
-                city1 = cur_line.split('\t')[0]
-                city2 = cur_line.split('\t')[1]
-                dist = cur_line.split('\t')[2].strip('\n')
-                if city1 not in distance_graph:
-                    distance_graph[city1] = []
-                if city2 not in distance_graph:
-                    distance_graph[city2] = []
-                distance_graph[city1].append([city2, int(dist)])
-                distance_graph[city2].append([city1, int(dist)])
-            else:
-                break
-    return distance_graph
-
-def shortest_distances(distance_graph: dict, start_vertex: str) -> (dict, dict):
-    if start_vertex not in distance_graph:
-        return 'Неверная точка', {}
-    visited = set()
-    distances = {elem: float('inf') for elem in distance_graph}
-    prev_nodes = {elem: None for elem in distance_graph}
-    distances[start_vertex] = 0
-    for _ in range(len(distance_graph) - 1):
-        cur_vertex = min((v for v in distance_graph if v not in visited), key=lambda v: distances[v])
-        visited.add(cur_vertex)
-        for neighbor, dist in distance_graph[cur_vertex]:
-            if neighbor in visited:
-                continue
-            new_distance = distances[cur_vertex] + dist
-            if new_distance < distances[neighbor]:
-                distances[neighbor] = new_distance
-                prev_nodes[neighbor] = cur_vertex
-    return distances, prev_nodes
-
-def convert_coordinates(point_str):
-    lat, lon = map(float, point_str[1:-1].split(','))
-    return lat, lon
-
-
-
-
-graph = build_distance_graph('data.txt')
-
-# distances = sorted(shortest_distances(graph, '(53.8928121, 27.5453602)').items(), key=lambda x: x[1])
-
-# print(f"dist_graph: {graph}")
-
-
-root_window = tkinter.Tk()
-root_window.geometry(f"{1920}x{1080}")
-root_window.title("Map Testing")
-
-map_widget = tkintermapview.TkinterMapView(root_window, width=1920, height=1080, corner_radius=0)
-map_widget.place(relx=0.5, rely=0.5, anchor=tkinter.CENTER)
-map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga")
-
-
-map_widget.set_position(53.8928062, 27.5442249)
-map_widget.set_zoom(14)
-
-
-# Получение кратчайших расстояний и путей
-start_node = '(53.8927267, 27.5458135)'
-distances, paths = shortest_distances(graph, start_node)
-
-# Построение маршрута
-route = []
-current_node = '(53.8937536, 27.5499859)'
-while current_node is not None:
-    route.append(current_node)
-    current_node = paths.get(current_node)
-
-# Преобразование координат маршрута
-route_coordinates = [convert_coordinates(point) for point in route]
-
-# Отображение маршрута на карте
-map_widget.set_path(route_coordinates)
-
-
-path_coordinates = [(float(point[1:11]), float(point[13:23])) for point in graph]
-
-for point in graph:
-    map_widget.set_marker(float(point[1:11]), float(point[13:23]))
-
-
-root_window.mainloop()
+# import osmium
+# import tkinter
+# import tkintermapview
+# from geopy.distance import geodesic
+#
+#
+# class CounterHandler(osmium.SimpleHandler):
+#     def __init__(self, way_type):
+#         super().__init__()
+#         # osmium.SimpleHandler.__init__(self)
+#         self.type_of_way = way_type
+#         self.nodes = {}
+#         self.ways = {}
+#         self.graph = {}
+#         self.distances = {}
+#
+#     def node(self, n):
+#         lat = n.location.lat
+#         lon = n.location.lon
+#         self.nodes[str(n.id)] = (lat, lon)
+#
+#     # метод для парсинга путей из файла
+#     def way(self, w):
+#         way_id = w.id
+#         nodes_in_way = [node.ref for node in w.nodes]
+#
+#         tags = []
+#         if w.tags:
+#             tags = [{'k': tag.k, 'v': tag.v} for tag in w.tags]
+#
+#         highway_by_car = {'track', 'path', 'residential', 'primary', 'secondary', 'unclassified', 'tertiary', 'service',
+#                           'driveway', 'motorway', 'trunk', 'parking_aisle', 'building'}
+#
+#         highway_by_walk = {'service', 'pedestrian', 'unclassified', 'footway', 'track', 'path', 'steps', 'cycleway',
+#                            'parking_aisle', 'bridleway', 'residential', 'crossing', 'building'}
+#
+#         if self.type_of_way == 'car':
+#             relevant_tags = highway_by_car
+#         elif self.type_of_way == 'walking':
+#             relevant_tags = highway_by_walk
+#         else:
+#             raise ValueError("Неизвестный тип движения")
+#
+#         if not any(tag['k'] == 'highway' and tag['v'] in relevant_tags for tag in tags):
+#             return
+#
+#         has_building_tag = any(tag.get('k') == 'building' for tag in tags)
+#         if has_building_tag:
+#             # Если ключ 'building' найден, пропускаем этот путь
+#             return
+#
+#         self.ways[way_id] = {'id': way_id, 'nodes': nodes_in_way, 'tags': tags}
+#
+#
+# def calculate_distance(self, node1, node2):
+#         """Вычисляет расстояние между двумя узлами с использованием формулы гаверсинуса."""
+#         lat1, lon1 = self.nodes[str(node1)]
+#         lat2, lon2 = self.nodes[str(node2)]
+#         return geodesic((lat1, lon1), (lat2, lon2)).kilometers
+#
+#     def build_graph(self):
+#         all_nodes = []
+#         for way_data in self.ways.values():
+#             all_nodes.extend(way_data['nodes'])
+#
+#         self.graph = {node: [] for node in all_nodes}
+#         self.distances = {}  # Инициализируем словарь для расстояний
+#
+#         for way_data in self.ways.values():
+#             nodes_in_way = way_data['nodes']
+#             for i in range(len(nodes_in_way) - 1):
+#                 if nodes_in_way[i + 1] not in self.graph[nodes_in_way[i]]:
+#                     self.graph[nodes_in_way[i]].append(nodes_in_way[i + 1])
+#                     self.graph[nodes_in_way[i + 1]].append(nodes_in_way[i])
+#                     # Вычисляем расстояние между узлами и сохраняем его
+#                     distance = self.calculate_distance(nodes_in_way[i], nodes_in_way[i + 1])
+#                     self.distances[nodes_in_way[i]] = self.distances.get(nodes_in_way[i], {}) | {
+#                         nodes_in_way[i + 1]: distance}
+#                     self.distances[nodes_in_way[i + 1]] = self.distances.get(nodes_in_way[i + 1], {}) | {
+#                         nodes_in_way[i]: distance}  # Обратное расстояние
+#
+#
+# def shortest_path(distance_graph: dict, start_vertex: int, end_vertex: int):
+#     if start_vertex not in distance_graph or end_vertex not in distance_graph:
+#         return f'{start_vertex} и {end_vertex} не находятся в БД карты.'
+#
+#     visited = set()
+#     distances = {elem: float('inf') for elem in distance_graph}
+#     distances[start_vertex] = 0
+#     paths = {start_vertex: [start_vertex]}
+#
+#     while True:
+#
+#         cur_vertex = min((v for v in distance_graph if v not in visited), key=lambda v: distances[v])
+#
+#         if cur_vertex == end_vertex:
+#             return distances[end_vertex], paths[end_vertex]
+#         visited.add(cur_vertex)
+#
+#         for neighbor, dist in distance_graph[cur_vertex].items():
+#             if neighbor in visited:
+#                 continue
+#             new_distance = distances[cur_vertex] + dist
+#             if new_distance < distances[neighbor]:
+#                 distances[neighbor] = new_distance
+#                 paths[neighbor] = paths[cur_vertex] + [neighbor]
+#
+#
+# if __name__ == '__main__':
+#     start_node = 1843227098
+#     target_node = 3048099426
+#     type_of_way = 'car'  # 'walking' / 'car'
+#
+#     h = CounterHandler(type_of_way)
+#
+#     # Лучше использовать.pbf формат (более свежая версия)
+#     h.apply_file("Map/liechtenstein-latest.osm.pbf")
+#
+#     h.build_graph()
+#
+#     distance, short_path, *_ = shortest_path(h.distances, 9711315230, 9711315233)
+#     print(f"Общее расстояние: {distance}\nКратчайший путь: {short_path}")
+#
+#     wayrepr = [h.nodes[str(node)] for node in short_path]
+#     print(f"Список для построения пути между двумя точками: {wayrepr}")
+#
+#     # Работа с картой
+#     root_window = tkinter.Tk()
+#     root_window.geometry(f"{1920}x{1080}")
+#     root_window.title("Map Testing")
+#
+#     map_widget = tkintermapview.TkinterMapView(root_window, width=1920, height=1080, corner_radius=0)
+#     map_widget.place(relx=0.5, rely=0.5, anchor=tkinter.CENTER)
+#     map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga")
+#
+#     map_widget.set_position(h.nodes[str(start_node)][0], h.nodes[str(start_node)][1])
+#
+#     map_widget.set_zoom(14)
+#
+#     line_options = {
+#         "stroke_color": "red",  # Цвет линии
+#         "stroke_width": 5  # Толщина линии
+#     }
+#
+#     map_widget.set_path(wayrepr, **line_options)
+#
+#     map_widget.mainloop()
