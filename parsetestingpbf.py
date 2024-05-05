@@ -1,15 +1,18 @@
 import osmium
 import tkinter
 import tkintermapview
+from geopy.distance import geodesic
+
 
 class CounterHandler(osmium.SimpleHandler):
-    def __init__(self):
-        osmium.SimpleHandler.__init__(self)
-        # self.num_nodes = 0
+    def __init__(self, way_type):
+        super().__init__()
+        # osmium.SimpleHandler.__init__(self)
+        self.type_of_way = way_type
         self.nodes = {}
         self.ways = {}
         self.graph = {}
-        self.relations = {}
+        self.distances = {}
 
     def node(self, n):
         lat = n.location.lat
@@ -25,94 +28,100 @@ class CounterHandler(osmium.SimpleHandler):
         if w.tags:
             tags = [{'k': tag.k, 'v': tag.v} for tag in w.tags]
 
+        highway_by_car = {'track', 'path', 'residential', 'primary', 'secondary', 'unclassified', 'tertiary', 'service',
+                          'driveway', 'motorway', 'trunk', 'parking_aisle'}
+
+        highway_by_walk = {'service', 'pedestrian', 'unclassified', 'footway', 'track', 'path', 'steps', 'cycleway',
+                           'parking_aisle', 'bridleway', 'residential', 'crossing'}
+
+        if self.type_of_way == 'car':
+            relevant_tags = highway_by_car
+        elif self.type_of_way == 'walking':
+            relevant_tags = highway_by_walk
+        else:
+            raise ValueError("Неизвестный тип движения")
+
+        if not any(tag['k'] == 'highway' and tag['v'] in relevant_tags for tag in tags):
+            return
+
+        has_building_tag = any(tag['k'] == 'building' for tag in tags)
+        if has_building_tag:
+            # Если ключ 'building' найден, пропускаем этот путь
+            return
+
         self.ways[way_id] = {'id': way_id, 'nodes': nodes_in_way, 'tags': tags}
 
-    def relation(self, r):
-        relation_id = r.id
-        members = [{'type': member.type, 'ref': member.ref, 'role': member.role} for member in r.members]
+    def calculate_distance(self, node1, node2):
+        """Вычисляет расстояние между двумя узлами с использованием формулы гаверсинуса."""
+        lat1, lon1 = self.nodes[str(node1)]
+        lat2, lon2 = self.nodes[str(node2)]
+        return geodesic((lat1, lon1), (lat2, lon2)).kilometers
 
-        tags = []
-        if r.tags:
-            tags = [{'k': tag.k, 'v': tag.v} for tag in r.tags]
+    def build_graph(self):
+        all_nodes = []
+        for way_data in self.ways.values():
+            all_nodes.extend(way_data['nodes'])
 
-        self.relations[relation_id] = {'id': relation_id, 'members': members, 'tags': tags}
+        self.graph = {node: [] for node in all_nodes}
+        self.distances = {}  # Инициализируем словарь для расстояний
 
-    def build_path_from_relation(self, relation_id):
-        # Проверяем наличие отношения в словаре
-        if relation_id not in h.relations:
-            print(f"Отношение с ID {relation_id} не найдено.")
-            return []
+        for way_data in self.ways.values():
+            nodes_in_way = way_data['nodes']
+            for i in range(len(nodes_in_way) - 1):
+                if nodes_in_way[i + 1] not in self.graph[nodes_in_way[i]]:
+                    self.graph[nodes_in_way[i]].append(nodes_in_way[i + 1])
+                    self.graph[nodes_in_way[i + 1]].append(nodes_in_way[i])
+                    # Вычисляем расстояние между узлами и сохраняем его
+                    distance = self.calculate_distance(nodes_in_way[i], nodes_in_way[i + 1])
+                    self.distances[nodes_in_way[i]] = self.distances.get(nodes_in_way[i], {}) | {
+                        nodes_in_way[i + 1]: distance}
+                    self.distances[nodes_in_way[i + 1]] = self.distances.get(nodes_in_way[i + 1], {}) | {
+                        nodes_in_way[i]: distance}  # Обратное расстояние
 
-        relation = h.relations[relation_id]
-        if not relation:
-            return []
 
-        path = []
+def shortest_path(distance_graph: dict, start_vertex: int, end_vertex: int):
+    if start_vertex not in distance_graph or end_vertex not in distance_graph:
+        return f'{start_vertex} и {end_vertex} не находятся в БД карты.'
 
-        for member in relation['members']:
-            if member['type'] == 'n':
-                node_id = member['ref']
-                if str(node_id) in h.nodes:
-                    path.append(h.nodes[str(node_id)])
-            elif member['type'] == 'w':
-                way_id = member['ref']
-                if way_id in h.ways:
-                    way = h.ways[way_id]
-                    for node_id in way['nodes']:
-                        if str(node_id) in h.nodes:
-                            path.append(h.nodes[str(node_id)])
-            elif member['type'] == 'r':
-                # Рекурсивно обрабатываем вложенные отношения
-                if member['ref'] in h.relations:
-                    path.extend(self.build_path_from_relation(member['ref']))
+    visited = set()
+    distances = {elem: float('inf') for elem in distance_graph}
+    distances[start_vertex] = 0
+    paths = {start_vertex: [start_vertex]}
 
-        return path
+    while True:
 
+        cur_vertex = min((v for v in distance_graph if v not in visited), key=lambda v: distances[v])
+
+        if cur_vertex == end_vertex:
+            return distances[end_vertex], paths[end_vertex]
+        visited.add(cur_vertex)
+
+        for neighbor, dist in distance_graph[cur_vertex].items():
+            if neighbor in visited:
+                continue
+            new_distance = distances[cur_vertex] + dist
+            if new_distance < distances[neighbor]:
+                distances[neighbor] = new_distance
+                paths[neighbor] = paths[cur_vertex] + [neighbor]
 
 
 if __name__ == '__main__':
+    start_node = 1843227098
+    target_node = 3048099426
+    type_of_way = 'car'  # 'walking' / 'car'
 
-    #  Выбор начальной точки и точки, куда хотим добраться
-    # start_node_id = 4903992
-    # end_node_id = 4903993
+    h = CounterHandler(type_of_way)
 
-    h = CounterHandler()
-
-    # Лучше использовать .pbf формат (более свежая версия)
+    # Лучше использовать.pbf формат (более свежая версия)
     h.apply_file("Map/liechtenstein-latest.osm.pbf")
 
-    relation_id = 14710393
+    h.build_graph()
 
-    # print(h.nodes)
+    distance, short_path, *_ = shortest_path(h.distances, 442535874, 995356803)
+    print(f"Общее расстояние: {distance}\nКратчайший путь: {short_path}")
 
-    # print(h.build_path_from_relation(relation_id))
-
-    #
-    # for way in h.ways:
-    #     for node_id in h.ways[way]['nodes']:
-    #         if str(node_id) in h.nodes:
-    #             path.append(h.nodes[str(node_id)])
-    #
-    # print(path)
-
-    # nd_in_curway = []
-
-    # for node_id in h.ways[start_node_id]['nodes']:
-    #     if str(node_id) in h.nodes:
-    #         nd_in_curway.append(h.nodes[str(node_id)])
-    #
-    # print(h.ways[start_node_id]['nodes'])
-    # print(nd_in_curway)
-
-    # for node_id in h.ways[end_node_id]['nodes']:
-    #     if str(node_id) in h.nodes:
-    #         nd_in_endway.append(h.nodes[str(node_id)])
-    #
-    # for node_id in h.ways[4904154]['nodes']:
-    #     if str(node_id) in h.nodes:
-    #         nd_in_endway.append(h.nodes[str(node_id)])
-
-
+    wayrepr = [h.nodes[str(node)] for node in short_path]
+    print(f"Список для построения пути между двумя точками: {wayrepr}")
 
     # Работа с картой
     root_window = tkinter.Tk()
@@ -123,18 +132,10 @@ if __name__ == '__main__':
     map_widget.place(relx=0.5, rely=0.5, anchor=tkinter.CENTER)
     map_widget.set_tile_server("https://mt0.google.com/vt/lyrs=s&hl=en&x={x}&y={y}&z={z}&s=Ga")
 
-    map_widget.set_position(47.1878356, 9.5504767)
+    map_widget.set_position(h.nodes[str(start_node)][0], h.nodes[str(start_node)][1])
+
     map_widget.set_zoom(14)
 
-    cur_path = h.build_path_from_relation(relation_id)
-    print(h.relations[relation_id])
-    print(cur_path)
-    print(f"Кол-во узлов в пути: {len(cur_path)}")
-
-    map_widget.set_path(cur_path)
-
+    map_widget.set_path(wayrepr)
 
     map_widget.mainloop()
-
-
-
