@@ -13,6 +13,15 @@ class CounterHandler(osmium.SimpleHandler):
         self.ways = {}
         self.graph = {}
         self.distances = {}
+        self.highway_by_car = {'track', 'path', 'residential', 'primary',
+                               'secondary', 'unclassified', 'tertiary',
+                               'service', 'driveway', 'motorway',
+                               'trunk', 'parking_aisle'}
+
+        self.highway_by_walk = {'service', 'pedestrian', 'unclassified',
+                                'footway', 'track', 'path', 'steps',
+                                'cycleway', 'parking_aisle',
+                                'bridleway', 'crossing'}
 
     def node(self, n):
         lat = n.location.lat
@@ -28,16 +37,10 @@ class CounterHandler(osmium.SimpleHandler):
         if w.tags:
             tags = [{'k': tag.k, 'v': tag.v} for tag in w.tags]
 
-        highway_by_car = {'track', 'path', 'residential', 'primary', 'secondary', 'unclassified', 'tertiary', 'service',
-                          'driveway', 'motorway', 'trunk', 'parking_aisle'}
-
-        highway_by_walk = {'service', 'pedestrian', 'unclassified', 'footway', 'track', 'path', 'steps', 'cycleway',
-                           'parking_aisle', 'bridleway', 'residential', 'crossing'}
-
         if self.type_of_way == 'car':
-            relevant_tags = highway_by_car
+            relevant_tags = self.highway_by_car
         elif self.type_of_way == 'walking':
-            relevant_tags = highway_by_walk
+            relevant_tags = self.highway_by_walk
         else:
             raise ValueError("Неизвестный тип движения")
 
@@ -58,25 +61,36 @@ class CounterHandler(osmium.SimpleHandler):
         return geodesic((lat1, lon1), (lat2, lon2)).kilometers
 
     def build_graph(self):
+        # Инициализация списка для хранения всех узлов
         all_nodes = []
-        for way_data in self.ways.values():
-            all_nodes.extend(way_data['nodes'])
 
+        # Проходим по всем путям и собираем узлы в список
+        for way_data in self.ways.values():
+            all_nodes.extend(way_data['nodes'])  # Расширяем список узлов
+
+        # Создаем граф, где каждому узлу соответствует пустой список
         self.graph = {node: [] for node in all_nodes}
-        self.distances = {}  # Инициализируем словарь для расстояний
 
+        # Проходим по всем путям еще раз для заполнения графа и словаря расстояний
         for way_data in self.ways.values():
-            nodes_in_way = way_data['nodes']
+            nodes_in_way = way_data['nodes']  # Получаем узлы текущего пути
+
+            # Проходим по узлам пути, кроме последнего
             for i in range(len(nodes_in_way) - 1):
+                # Проверяем, существует ли уже ребро между текущим и следующим узлом
                 if nodes_in_way[i + 1] not in self.graph[nodes_in_way[i]]:
+                    # Добавляем ребро в оба направления для симметрии графа
                     self.graph[nodes_in_way[i]].append(nodes_in_way[i + 1])
                     self.graph[nodes_in_way[i + 1]].append(nodes_in_way[i])
+
                     # Вычисляем расстояние между узлами и сохраняем его
                     distance = self.calculate_distance(nodes_in_way[i], nodes_in_way[i + 1])
+
+                    # Сохраняем расстояние в словаре расстояний
                     self.distances[nodes_in_way[i]] = self.distances.get(nodes_in_way[i], {}) | {
-                        nodes_in_way[i + 1]: distance}
+                        nodes_in_way[i + 1]: distance}  # Добавляем расстояние до следующего узла
                     self.distances[nodes_in_way[i + 1]] = self.distances.get(nodes_in_way[i + 1], {}) | {
-                        nodes_in_way[i]: distance}  # Обратное расстояние
+                        nodes_in_way[i]: distance}  # Добавляем обратное расстояние
 
 
 def shortest_path(distance_graph: dict, start_vertex: int, end_vertex: int):
@@ -89,7 +103,6 @@ def shortest_path(distance_graph: dict, start_vertex: int, end_vertex: int):
     paths = {start_vertex: [start_vertex]}
 
     while True:
-
         cur_vertex = min((v for v in distance_graph if v not in visited), key=lambda v: distances[v])
 
         if cur_vertex == end_vertex:
@@ -155,8 +168,6 @@ if __name__ == '__main__':
 
     points = []
 
-    # start_node = 442535874
-    # target_node = 995356803
     type_of_way = 'car'  # 'walking' / 'car'
 
     h = CounterHandler(type_of_way)
@@ -182,6 +193,7 @@ if __name__ == '__main__':
     button.pack(padx=10, pady=10)
 
     map_widget.set_zoom(12)
-    map_widget.set_position(47.12020948185704, 9.56028781452834)
+    map_widget.set_position(47.12020948185704, 9.56028781452834)  # установка карты на точке, которая находится в стране
+
 
     map_widget.mainloop()
