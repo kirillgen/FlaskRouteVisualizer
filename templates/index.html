@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Route Planner</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <style>
+        #map {
+            height: 600px;
+            width: 100%;
+            border: 1px solid #ccc;
+        }
+        .prediction-panel {
+            background: #f8f9fa;
+            padding: 20px;
+            border-radius: 5px;
+            margin-top: 20px;
+        }
+        .flex-fill {
+            min-width: 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container mt-4">
+        <h1 class="text-center mb-4">AI Route Planner</h1>
+        
+        <div class="row">
+            <div class="col-md-8">
+                <div id="map"></div>
+            </div>
+            <div class="col-md-4">
+                <div class="prediction-panel">
+                    <h3>Построение маршрута</h3>
+                    <form id="routeForm">
+                        <div class="mb-3">
+                            <label for="startPoint" class="form-label">Начальная точка</label>
+                            <input type="text" class="form-control" id="startPoint" placeholder="Введите координаты (например: 47.1202 9.5602)">
+                        </div>
+                        <div class="mb-3">
+                            <label for="endPoint" class="form-label">Конечная точка</label>
+                            <input type="text" class="form-control" id="endPoint" placeholder="Введите координаты (например: 47.1417 9.5214)">
+                        </div>
+                        <div class="mb-3">
+                            <label for="routeType" class="form-label">Тип маршрута</label>
+                            <select class="form-control" id="routeType">
+                                <option value="car">Автомобиль</option>
+                                <option value="walking">Пешком</option>
+                            </select>
+                        </div>
+                        <div class="mb-3 d-flex gap-2">
+                            <button type="button" class="btn btn-outline-primary flex-fill" id="pickStart">Выбрать на карте начальную точку</button>
+                            <button type="button" class="btn btn-outline-secondary flex-fill" id="pickEnd">Выбрать на карте конечную точку</button>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Построить маршрут</button>
+                    </form>
+                    
+                    <div id="routeInfo" class="mt-4">
+                        <h4>Информация о маршруте</h4>
+                        <div id="distance"></div>
+                        <div id="error" class="text-danger mt-2"></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
+    <script>
+        // Инициализация карты
+        const map = L.map('map').setView([47.1202, 9.5602], 12);
+        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+            attribution: '© OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France'
+        }).addTo(map);
+
+        let routeLayer = null;
+        let startMarker = null;
+        let endMarker = null;
+        let pickMode = null; // 'start' или 'end'
+
+        document.getElementById('pickStart').onclick = function() {
+            pickMode = 'start';
+            map.getContainer().style.cursor = 'crosshair';
+        };
+        document.getElementById('pickEnd').onclick = function() {
+            pickMode = 'end';
+            map.getContainer().style.cursor = 'crosshair';
+        };
+
+        map.on('click', function(e) {
+            if (!pickMode) return;
+            const latlng = e.latlng;
+            if (pickMode === 'start') {
+                document.getElementById('startPoint').value = `${latlng.lat.toFixed(6)} ${latlng.lng.toFixed(6)}`;
+                if (startMarker) map.removeLayer(startMarker);
+                startMarker = L.marker(latlng).addTo(map);
+            } else if (pickMode === 'end') {
+                document.getElementById('endPoint').value = `${latlng.lat.toFixed(6)} ${latlng.lng.toFixed(6)}`;
+                if (endMarker) map.removeLayer(endMarker);
+                endMarker = L.marker(latlng).addTo(map);
+            }
+            pickMode = null;
+            map.getContainer().style.cursor = '';
+        });
+
+        document.getElementById('routeForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            
+            const startPoint = document.getElementById('startPoint').value;
+            const endPoint = document.getElementById('endPoint').value;
+            const routeType = document.getElementById('routeType').value;
+            const errorDiv = document.getElementById('error');
+            const distanceDiv = document.getElementById('distance');
+            
+            errorDiv.textContent = '';
+            distanceDiv.textContent = '';
+            
+            try {
+                const response = await fetch('/predict_route', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify({
+                        start: startPoint,
+                        end: endPoint,
+                        route_type: routeType
+                    })
+                });
+                
+                const data = await response.json();
+                
+                if (data.error) {
+                    errorDiv.textContent = data.error;
+                    return;
+                }
+                
+                // Очищаем предыдущий маршрут
+                if (routeLayer) {
+                    map.removeLayer(routeLayer);
+                }
+                if (startMarker) {
+                    map.removeLayer(startMarker);
+                }
+                if (endMarker) {
+                    map.removeLayer(endMarker);
+                }
+
+                // Отображаем маршрут
+                const routeCoords = data.route.map(point => [point.lat, point.lng]);
+                routeLayer = L.polyline(routeCoords, {color: 'blue'}).addTo(map);
+                
+                // Добавляем маркеры начала и конца
+                startMarker = L.marker(routeCoords[0]).addTo(map);
+                endMarker = L.marker(routeCoords[routeCoords.length - 1]).addTo(map);
+                
+                // Отображаем расстояние
+                distanceDiv.textContent = `Расстояние: ${data.distance.toFixed(2)} км`;
+                // Отображаем время
+                if (data.duration !== undefined && !isNaN(data.duration) && data.duration > 0) {
+                    const totalMinutes = Math.round(data.duration * 60);
+                    const hours = Math.floor(totalMinutes / 60);
+                    const minutes = totalMinutes % 60;
+                    let durationStr = '';
+                    if (hours > 0) {
+                        durationStr += `${hours} ч. `;
+                    }
+                    durationStr += `${minutes} мин.`;
+                    const durationDiv = document.createElement('div');
+                    durationDiv.textContent = `Время в пути: ${durationStr}`;
+                    distanceDiv.appendChild(document.createElement('br'));
+                    distanceDiv.appendChild(durationDiv);
+                }
+                
+                // Центрируем карту на маршруте
+                map.fitBounds(routeLayer.getBounds());
+            } catch (error) {
+                errorDiv.textContent = 'Ошибка при построении маршрута: ' + error.message;
+                console.error('Ошибка:', error);
+            }
+        });
+    </script>
+</body>
+</html> 

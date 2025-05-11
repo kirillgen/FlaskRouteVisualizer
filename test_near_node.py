@@ -1,3 +1,7 @@
+
+import tkinter
+import tkintermapview
+
 # Работа с картой
 root_window = tkinter.Tk()
 root_window.geometry(f"{1920}x{1080}")
