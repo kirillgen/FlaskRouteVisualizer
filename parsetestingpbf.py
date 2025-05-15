@@ -165,12 +165,35 @@ class CounterHandler(osmium.SimpleHandler):
                 way = self.find_way_by_nodes(path[i], path[i+1])
                 if way:
                     tags = way['tags']
+                    # Получаем ограничение скорости из тега maxspeed
+                    speed_limit = None
+                    for tag in tags:
+                        if tag['k'] == 'maxspeed':
+                            try:
+                                # Извлекаем числовое значение скорости
+                                speed_str = tag['v'].split()[0]  # Берем первое значение (число)
+                                speed_limit = int(speed_str)
+                                break
+                            except (ValueError, IndexError):
+                                # Если не удалось преобразовать значение, пропускаем
+                                continue
+                    
+                    # Получаем тип дороги и базовую скорость
                     highway_type = next((tag['v'] for tag in tags if tag['k'] == 'highway'), 'road')
-                    speed = self.road_speeds.get(highway_type, 30)
+                    base_speed = self.road_speeds.get(highway_type, 30)
+                    
+                    # Выбираем оптимальную скорость
+                    if speed_limit:
+                        # Используем минимальное значение между ограничением и базовой скоростью
+                        speed = min(speed_limit, base_speed)
+                    else:
+                        speed = base_speed
                 else:
                     speed = 30
+                
                 distance = self.distances[path[i]][path[i+1]]
                 total_time_hours += distance / speed
+        
         return total_time_hours
 
 
