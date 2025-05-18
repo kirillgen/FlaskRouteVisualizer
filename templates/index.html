@@ -5,12 +5,14 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Route Planner</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" integrity="sha256-p4NxAoJBhIIN+hmNHrzRCf9tD/miZyoHS5obTRR9BMY=" crossorigin=""/>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin=""/>
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script>
     <style>
         #map {
             height: 600px;
             width: 100%;
             border: 1px solid #ccc;
+            background: #f8f9fa;
         }
         .prediction-panel {
             background: #f8f9fa;
@@ -20,6 +22,25 @@
         }
         .flex-fill {
             min-width: 0;
+        }
+        .duration-info {
+            background-color: #f5f5f5;
+            padding: 10px;
+            border-radius: 5px;
+            margin: 10px 0;
+        }
+        .duration-info ul {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+        .duration-info li {
+            margin: 5px 0;
+            padding: 5px;
+            border-bottom: 1px solid #ddd;
+        }
+        .duration-info li:last-child {
+            border-bottom: none;
         }
     </style>
 </head>
@@ -57,10 +78,16 @@
                         <button type="submit" class="btn btn-primary w-100">Построить маршрут</button>
                     </form>
                     
-                    <div id="routeInfo" class="mt-4">
-                        <h4>Информация о маршруте</h4>
-                        <div id="distance"></div>
-                        <div id="error" class="text-danger mt-2"></div>
+                    <div class="route-info" id="routeInfo" style="display: none;">
+                        <h3>Информация о маршруте:</h3>
+                        <p>Расстояние: <span id="distance">0</span> км</p>
+                        <div class="duration-info">
+                            <p>Время маршрута:</p>
+                            <ul>
+                                <li>По локальному расчету: <span id="localDuration">0</span> ч</li>
+                                <li>По данным OpenRouteService: <span id="apiDuration">не доступно</span></li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -68,12 +95,13 @@
     </div>
 
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" integrity="sha256-20nQCchB9co0qIjJZRGuk2/Z9VM+kNiyxNV1lvTlZBo=" crossorigin=""></script>
     <script>
         // Инициализация карты
         const map = L.map('map').setView([47.1202, 9.5602], 12);
-        L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
-            attribution: '© OpenStreetMap contributors, Tiles style by Humanitarian OpenStreetMap Team hosted by OpenStreetMap France'
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+            attribution: '© <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors © <a href="https://carto.com/attributions">CARTO</a>',
+            subdomains: 'abcd',
+            maxZoom: 20
         }).addTo(map);
 
         let routeLayer = null;
@@ -112,13 +140,14 @@
             const startPoint = document.getElementById('startPoint').value;
             const endPoint = document.getElementById('endPoint').value;
             const routeType = document.getElementById('routeType').value;
-            const errorDiv = document.getElementById('error');
-            const distanceDiv = document.getElementById('distance');
             
-            errorDiv.textContent = '';
-            distanceDiv.textContent = '';
+            console.log('Отправка запроса на построение маршрута:');
+            console.log('Начальная точка:', startPoint);
+            console.log('Конечная точка:', endPoint);
+            console.log('Тип маршрута:', routeType);
             
             try {
+                console.log('Отправляю запрос на сервер...');
                 const response = await fetch('/predict_route', {
                     method: 'POST',
                     headers: {
@@ -131,10 +160,12 @@
                     })
                 });
                 
+                console.log('Получен ответ от сервера');
                 const data = await response.json();
+                console.log('Данные ответа:', data);
                 
                 if (data.error) {
-                    errorDiv.textContent = data.error;
+                    console.error('Ошибка:', data.error);
                     return;
                 }
                 
@@ -158,6 +189,7 @@
                 endMarker = L.marker(routeCoords[routeCoords.length - 1]).addTo(map);
                 
                 // Отображаем расстояние
+                const distanceDiv = document.getElementById('distance');
                 distanceDiv.textContent = `Расстояние: ${data.distance.toFixed(2)} км`;
                 // Отображаем время
                 if (data.duration !== undefined && !isNaN(data.duration) && data.duration > 0) {
@@ -177,11 +209,41 @@
                 
                 // Центрируем карту на маршруте
                 map.fitBounds(routeLayer.getBounds());
+
+                updateRouteInfo(data);
             } catch (error) {
-                errorDiv.textContent = 'Ошибка при построении маршрута: ' + error.message;
-                console.error('Ошибка:', error);
+                console.error('Ошибка при отправке запроса:', error);
             }
         });
+
+        function updateRouteInfo(data) {
+            const routeInfo = document.getElementById('routeInfo');
+            routeInfo.style.display = 'block';
+            
+            document.getElementById('distance').textContent = data.distance.toFixed(2);
+            
+            // Обновляем информацию о времени
+            const localDuration = data.duration.local;
+            const apiDuration = data.duration.api;
+            
+            document.getElementById('localDuration').textContent = localDuration.toFixed(2);
+            document.getElementById('apiDuration').textContent = 
+                apiDuration !== null ? apiDuration.toFixed(2) + ' ч' : 'не доступно';
+            
+            // Добавляем стили для визуального выделения более точного времени
+            const localElement = document.getElementById('localDuration').parentElement;
+            const apiElement = document.getElementById('apiDuration').parentElement;
+            
+            if (apiDuration !== null) {
+                localElement.style.color = '#666';
+                apiElement.style.color = '#000';
+                apiElement.style.fontWeight = 'bold';
+            } else {
+                localElement.style.color = '#000';
+                localElement.style.fontWeight = 'bold';
+                apiElement.style.color = '#666';
+            }
+        }
     </script>
 </body>
 </html> 
